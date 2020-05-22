@@ -20,7 +20,7 @@
         "optimize-autoloader": true
     },
     "scripts": {
-        "post-install-cmd": "php artisan migrate --force"
+        "post-install-cmd": "php scrape migrate --force"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
