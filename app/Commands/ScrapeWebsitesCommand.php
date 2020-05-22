@@ -94,9 +94,9 @@ class ScrapeWebsitesCommand extends Command
         $mailer = new Swift_Mailer($transport);
 
         $body = "Price: {$listing['price']}\n";
-        $body . "Title: {$listing['title']}\n";
-        $body . "Location: {$listing['location']}\n";
-        $body . "Description: {$listing['description']}\n";
+        $body .= "Title: {$listing['title']}\n";
+        $body .= "Location: {$listing['location']}\n";
+        $body .= "Description: {$listing['description']}\n";
 
         $message = (new Swift_Message("$name - New Listing"))
             ->setFrom([env('MAIL_USERNAME') => env('MAIL_FROM')])
