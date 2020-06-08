@@ -8,6 +8,7 @@ use LaravelZero\Framework\Commands\Command;
 use Swift_Mailer;
 use Swift_Message;
 use Swift_SmtpTransport;
+use Symfony\Component\DomCrawler\Crawler;
 
 class ScrapeWebsitesCommand extends Command
 {
@@ -40,7 +41,7 @@ class ScrapeWebsitesCommand extends Command
             $this->crawl(
                 env('SITE_ONE_URL'),
                 env('SITE_ONE_NAME'),
-                '.search-result',
+                '.search-result:not(.unruly_ad):not(.search-result--sponsored-ad):not(.js-run-script)',
                 [
                     'price' => '.is-price',
                     'title' => '.is-title',
@@ -54,7 +55,7 @@ class ScrapeWebsitesCommand extends Command
             $this->crawl(
                 env('SITE_TWO_URL'),
                 env('SITE_TWO_NAME'),
-                '.legend-title.normal + .profilelisting',
+                '.profilelisting.white-bg:not(.paid-advert)',
                 [
                     'price' => '.listingprice',
                     'title' => '.headline',
@@ -69,41 +70,48 @@ class ScrapeWebsitesCommand extends Command
     {
         $client = new Client();
         $crawler = $client->request('GET', $website);
-        $result = $crawler->filter($anchor)->first();
 
-        $listing = [
-            'website' => $name,
-            'price' => $result->filter($selectors['price'])->text(),
-            'title' => $result->filter($selectors['title'])->text(),
-            'location' => $result->filter($selectors['location'])->text(),
-            'description' => $result->filter($selectors['description'])->text()
-        ];
+        $listings = $crawler->filter($anchor)->each(static function (Crawler $parentCrawler, $i) use ($name, $selectors) {
+            return [
+                'website' => $name,
+                'price' => $parentCrawler->filter($selectors['price'])->text(),
+                'title' => $parentCrawler->filter($selectors['title'])->text(),
+                'location' => $parentCrawler->filter($selectors['location'])->text(),
+                'description' => $parentCrawler->filter($selectors['description'])->text()
+            ];
+        });
 
-        $existingListing = DB::table('listings')->where($listing)->latest('id')->first();
+        $listings = array_slice($listings, 0, 5, true);
 
-        if ($existingListing) {
-            return $this->question(' This listing has already been scraped. Skipping.. ');
+        foreach ($listings as $i => $listing) {
+
+            $existingListing = DB::table('listings')->where($listing)->latest('id')->first();
+
+            if ($existingListing) {
+                $this->question(" This listing has already been scraped. Skipping.. ");
+                continue;
+            }
+
+            DB::table('listings')->insert($listing);
+
+            $transport = (new Swift_SmtpTransport(env('MAIL_HOST'), env('MAIL_PORT'), env('MAIL_ENCRYPTION')))
+                ->setUsername(env('MAIL_USERNAME'))
+                ->setPassword(env('MAIL_PASSWORD'));
+
+            $mailer = new Swift_Mailer($transport);
+
+            $body = "Price: {$listing['price']}\n";
+            $body .= "Title: {$listing['title']}\n";
+            $body .= "Location: {$listing['location']}\n";
+            $body .= "Description: {$listing['description']}\n";
+
+            $message = (new Swift_Message("$name - New Listing"))
+                ->setFrom([env('MAIL_USERNAME') => env('MAIL_FROM')])
+                ->setTo(env('MAIL_USERNAME'))
+                ->setBody($body);
+
+            $mailer->send($message);
+            $this->info(" New listing found.. Emailing.. ");
         }
-
-        DB::table('listings')->insert($listing);
-
-        $transport = (new Swift_SmtpTransport(env('MAIL_HOST'), env('MAIL_PORT'), env('MAIL_ENCRYPTION')))
-            ->setUsername(env('MAIL_USERNAME'))
-            ->setPassword(env('MAIL_PASSWORD'));
-
-        $mailer = new Swift_Mailer($transport);
-
-        $body = "Price: {$listing['price']}\n";
-        $body .= "Title: {$listing['title']}\n";
-        $body .= "Location: {$listing['location']}\n";
-        $body .= "Description: {$listing['description']}\n";
-
-        $message = (new Swift_Message("$name - New Listing"))
-            ->setFrom([env('MAIL_USERNAME') => env('MAIL_FROM')])
-            ->setTo(env('MAIL_USERNAME'))
-            ->setBody($body);
-
-        $mailer->send($message);
-        $this->info(' New listing found.. Emailing.. ');
     }
 }
